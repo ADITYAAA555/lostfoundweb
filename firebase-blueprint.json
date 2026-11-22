@@ -1,0 +1,298 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public campus profile used for leaderboard and attribution with user consent.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "department": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["student", "admin", "security"] },
+        "totalXP": { "type": "number" },
+        "successfulReturns": { "type": "number" },
+        "badges": { "type": "array" },
+        "publicLeaderboardConsent": { "type": "boolean" },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "department", "role", "totalXP", "publicLeaderboardConsent", "createdAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Strictly isolated PII for a campus user (email, studentId, notification preferences).",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "studentId": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "studentId"]
+    },
+    "Item": {
+      "title": "Item",
+      "description": "Public lost or found item listing without private identifying features.",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["lost", "found"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "category": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "brand": { "type": "string", "maxLength": 80 },
+        "color": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "description": { "type": "string", "minLength": 5, "maxLength": 1500 },
+        "imageURL": { "type": "string", "maxLength": 1500 },
+        "location": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "eventDate": { "type": "string", "maxLength": 64 },
+        "reportedBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reporterDisplay": { "type": "string", "maxLength": 120 },
+        "isAnonymous": { "type": "boolean" },
+        "handoverPreference": { "type": "string", "enum": ["safe_return", "security_desk", "anonymous"] },
+        "status": { "type": "string", "enum": ["Lost", "Found", "Matched", "Claim Pending", "Handed to Security", "Returned", "Closed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "type", "title", "category", "color", "description", "location", "reportedBy", "status", "createdAt"]
+    },
+    "ItemPrivateDetails": {
+      "title": "ItemPrivateDetails",
+      "description": "Protected private identifying features and exact sensitive metadata for ownership verification.",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reportedBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "privateFeatures": { "type": "string", "maxLength": 1000 },
+        "exactLocationNote": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "reportedBy", "privateFeatures", "createdAt"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "AI-computed similarity match record between a lost item and a found item.",
+      "type": "object",
+      "properties": {
+        "matchId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "lostItemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "foundItemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "lostOwnerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "foundReporterId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "textScore": { "type": "number" },
+        "imageScore": { "type": "number" },
+        "attributeScore": { "type": "number" },
+        "locationTimeScore": { "type": "number" },
+        "combinedScore": { "type": "number" },
+        "reasons": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "claimed", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["matchId", "lostItemId", "foundItemId", "textScore", "imageScore", "attributeScore", "locationTimeScore", "combinedScore", "status", "createdAt"]
+    },
+    "Claim": {
+      "title": "Claim",
+      "description": "Ownership claim submitted by a student with private verification details.",
+      "type": "object",
+      "properties": {
+        "claimId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itemOwnerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "claimantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "answers": { "type": "string", "minLength": 5, "maxLength": 1500 },
+        "privateDetailAttempt": { "type": "string", "minLength": 3, "maxLength": 800 },
+        "evidenceURL": { "type": "string", "maxLength": 1500 },
+        "verificationStatus": { "type": "string", "enum": ["Pending", "Finder Approved", "Admin Approved", "Security Verified", "Rejected", "Disputed", "Completed"] },
+        "reviewedBy": { "type": "string", "maxLength": 128 },
+        "reviewNote": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["claimId", "itemId", "itemOwnerId", "claimantId", "answers", "verificationStatus", "createdAt"]
+    },
+    "Reward": {
+      "title": "Reward",
+      "description": "Server/admin-verified Good Samaritan XP ledger transaction.",
+      "type": "object",
+      "properties": {
+        "rewardId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "activity": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "points": { "type": "number" },
+        "relatedItemId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["rewardId", "userId", "activity", "points", "createdAt"]
+    },
+    "Redemption": {
+      "title": "Redemption",
+      "description": "Simulated campus reward redemption record.",
+      "type": "object",
+      "properties": {
+        "redemptionId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "rewardTitle": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "xpCost": { "type": "number" },
+        "voucherCode": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "enum": ["Active", "Used"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["redemptionId", "userId", "rewardTitle", "xpCost", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification for matches, claims, handovers, and XP awards.",
+      "type": "object",
+      "properties": {
+        "notificationId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "message": { "type": "string", "minLength": 2, "maxLength": 400 },
+        "type": { "type": "string", "enum": ["match", "claim", "approved", "rejected", "returned", "xp", "badge", "rank", "admin"] },
+        "isRead": { "type": "boolean" },
+        "relatedPath": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["notificationId", "userId", "message", "type", "isRead", "createdAt"]
+    },
+    "Handover": {
+      "title": "Handover",
+      "description": "University security desk custody and handover record.",
+      "type": "object",
+      "properties": {
+        "handoverId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "referenceCode": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "itemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "receivingStaffId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storageLocation": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "handoverDate": { "type": "string", "format": "date-time" },
+        "collectionDate": { "type": "string", "format": "date-time" },
+        "collectedByUserId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["In Custody", "Claim Under Review", "Collected", "Archived"] }
+      },
+      "required": ["handoverId", "referenceCode", "itemId", "receivingStaffId", "storageLocation", "handoverDate", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable security and moderation audit log entry.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "targetType": { "type": "string", "maxLength": 60 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["logId", "actorId", "action", "createdAt"]
+    },
+    "ModerationReport": {
+      "title": "ModerationReport",
+      "description": "Suspicious listing or user moderation flag for admin review.",
+      "type": "object",
+      "properties": {
+        "reportId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reporterId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetItemId": { "type": "string", "maxLength": 128 },
+        "targetUserId": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "minLength": 5, "maxLength": 500 },
+        "status": { "type": "string", "enum": ["Open", "Under Review", "Resolved", "Dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reportId", "reporterId", "reason", "status", "createdAt"]
+    },
+    "CampusLocation": {
+      "title": "CampusLocation",
+      "description": "Editable campus building, zone, and security custody desk pin on the interactive campus map.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "zone": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "buildingCode": { "type": "string", "minLength": 1, "maxLength": 24 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "mapX": { "type": "number" },
+        "mapY": { "type": "number" },
+        "hasSecurityDesk": { "type": "boolean" },
+        "securityHours": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "zone", "buildingCode", "latitude", "longitude", "mapX", "mapY"]
+    },
+    "CampusMapConfig": {
+      "title": "CampusMapConfig",
+      "description": "Global campus map title, layout theme, and optional custom background map image.",
+      "type": "object",
+      "properties": {
+        "configId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "campusName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "mapSubtitle": { "type": "string", "maxLength": 200 },
+        "layoutStyle": { "type": "string", "enum": ["classic_quad", "urban_grid", "circular_courtyard", "custom_image"] },
+        "customMapImageURL": { "type": "string", "maxLength": 1500 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["configId", "campusName", "layoutStyle"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Public campus profiles for leaderboard and display attribution."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivate" },
+      "description": "Private PII (email, studentId, phone) accessible only to owner or admin."
+    },
+    "/items/{itemId}": {
+      "schema": { "$ref": "#/entities/Item" },
+      "description": "Public lost and found item reports."
+    },
+    "/items/{itemId}/private/{detailId}": {
+      "schema": { "$ref": "#/entities/ItemPrivateDetails" },
+      "description": "Private identifying features and exact location notes accessible only to reporter, security, or admin."
+    },
+    "/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/Match" },
+      "description": "AI similarity matches between lost and found items."
+    },
+    "/claims/{claimId}": {
+      "schema": { "$ref": "#/entities/Claim" },
+      "description": "Ownership verification claims."
+    },
+    "/rewards/{rewardId}": {
+      "schema": { "$ref": "#/entities/Reward" },
+      "description": "Good Samaritan XP transaction history."
+    },
+    "/redemptions/{redemptionId}": {
+      "schema": { "$ref": "#/entities/Redemption" },
+      "description": "Simulated reward redemption vouchers."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications."
+    },
+    "/handovers/{handoverId}": {
+      "schema": { "$ref": "#/entities/Handover" },
+      "description": "Security staff custody and handover records."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "System audit logs."
+    },
+    "/moderation_reports/{reportId}": {
+      "schema": { "$ref": "#/entities/ModerationReport" },
+      "description": "Suspicious report moderation queue."
+    },
+    "/campus_locations/{locationId}": {
+      "schema": { "$ref": "#/entities/CampusLocation" },
+      "description": "Publicly readable, admin/security-managed campus buildings and security desks."
+    },
+    "/campus_config/{configId}": {
+      "schema": { "$ref": "#/entities/CampusMapConfig" },
+      "description": "Publicly readable, admin/security-managed campus map layout and title configuration."
+    }
+  }
+}

@@ -1,0 +1,486 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'adityapatidar1810@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isSecurityStaff() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/security_staff/$(request.auth.uid)) ||
+        isAdmin()
+      );
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUserPublic(data, userId) {
+      return data.keys().hasAll(['userId', 'name', 'department', 'role', 'totalXP', 'successfulReturns', 'badges', 'publicLeaderboardConsent', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'name', 'department', 'role', 'totalXP', 'successfulReturns', 'badges', 'publicLeaderboardConsent', 'avatarUrl', 'createdAt']) &&
+        data.userId == userId &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.department is string && data.department.size() >= 1 && data.department.size() <= 100 &&
+        data.role in ['student', 'admin', 'security'] &&
+        data.totalXP is number && data.totalXP >= 0 &&
+        data.successfulReturns is number && data.successfulReturns >= 0 &&
+        data.badges is list && data.badges.size() <= 12 &&
+        (data.badges.size() == 0 || data.badges[0] is string) &&
+        data.publicLeaderboardConsent is bool &&
+        (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserPrivate(data, userId) {
+      return data.keys().hasAll(['userId', 'email', 'studentId']) &&
+        data.keys().hasOnly(['userId', 'email', 'studentId', 'phone', 'updatedAt']) &&
+        data.userId == userId &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.studentId is string && data.studentId.size() >= 2 && data.studentId.size() <= 40 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidItem(data, itemId) {
+      return data.keys().hasAll(['itemId', 'type', 'title', 'category', 'color', 'description', 'location', 'reportedBy', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['itemId', 'type', 'title', 'category', 'brand', 'color', 'description', 'imageURL', 'location', 'latitude', 'longitude', 'eventDate', 'reportedBy', 'reporterDisplay', 'isAnonymous', 'handoverPreference', 'status', 'createdAt', 'updatedAt']) &&
+        data.itemId == itemId &&
+        data.type in ['lost', 'found'] &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 60 &&
+        (!('brand' in data) || (data.brand is string && data.brand.size() <= 80)) &&
+        data.color is string && data.color.size() >= 1 && data.color.size() <= 40 &&
+        data.description is string && data.description.size() >= 5 && data.description.size() <= 1500 &&
+        (!('imageURL' in data) || (data.imageURL is string && data.imageURL.size() <= 1500)) &&
+        data.location is string && data.location.size() >= 2 && data.location.size() <= 120 &&
+        (!('latitude' in data) || data.latitude is number) &&
+        (!('longitude' in data) || data.longitude is number) &&
+        (!('eventDate' in data) || (data.eventDate is string && data.eventDate.size() <= 64)) &&
+        isValidId(data.reportedBy) &&
+        (!('reporterDisplay' in data) || (data.reporterDisplay is string && data.reporterDisplay.size() <= 120)) &&
+        (!('isAnonymous' in data) || data.isAnonymous is bool) &&
+        (!('handoverPreference' in data) || data.handoverPreference in ['safe_return', 'security_desk', 'anonymous']) &&
+        data.status in ['Lost', 'Found', 'Matched', 'Claim Pending', 'Handed to Security', 'Returned', 'Closed'] &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidItemPrivate(data, itemId) {
+      return data.keys().hasAll(['itemId', 'reportedBy', 'privateFeatures', 'createdAt']) &&
+        data.keys().hasOnly(['itemId', 'reportedBy', 'privateFeatures', 'exactLocationNote', 'createdAt']) &&
+        data.itemId == itemId &&
+        isValidId(data.reportedBy) &&
+        data.privateFeatures is string && data.privateFeatures.size() <= 1000 &&
+        (!('exactLocationNote' in data) || (data.exactLocationNote is string && data.exactLocationNote.size() <= 300)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidMatch(data, matchId) {
+      return data.keys().hasAll(['matchId', 'lostItemId', 'foundItemId', 'lostOwnerId', 'foundReporterId', 'textScore', 'imageScore', 'attributeScore', 'locationTimeScore', 'combinedScore', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['matchId', 'lostItemId', 'foundItemId', 'lostOwnerId', 'foundReporterId', 'textScore', 'imageScore', 'attributeScore', 'locationTimeScore', 'combinedScore', 'reasons', 'status', 'createdAt']) &&
+        data.matchId == matchId &&
+        isValidId(data.lostItemId) && isValidId(data.foundItemId) &&
+        isValidId(data.lostOwnerId) && isValidId(data.foundReporterId) &&
+        data.textScore is number && data.textScore >= 0 && data.textScore <= 100 &&
+        data.imageScore is number && data.imageScore >= 0 && data.imageScore <= 100 &&
+        data.attributeScore is number && data.attributeScore >= 0 && data.attributeScore <= 100 &&
+        data.locationTimeScore is number && data.locationTimeScore >= 0 && data.locationTimeScore <= 100 &&
+        data.combinedScore is number && data.combinedScore >= 0 && data.combinedScore <= 100 &&
+        (!('reasons' in data) || (data.reasons is list && data.reasons.size() <= 10 && (data.reasons.size() == 0 || data.reasons[0] is string))) &&
+        data.status in ['pending', 'reviewed', 'claimed', 'dismissed'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidClaim(data, claimId) {
+      return data.keys().hasAll(['claimId', 'itemId', 'itemOwnerId', 'claimantId', 'answers', 'verificationStatus', 'createdAt']) &&
+        data.keys().hasOnly(['claimId', 'itemId', 'itemOwnerId', 'claimantId', 'answers', 'privateDetailAttempt', 'evidenceURL', 'verificationStatus', 'reviewedBy', 'reviewNote', 'createdAt', 'updatedAt']) &&
+        data.claimId == claimId &&
+        isValidId(data.itemId) && isValidId(data.itemOwnerId) && isValidId(data.claimantId) &&
+        data.answers is string && data.answers.size() >= 5 && data.answers.size() <= 1500 &&
+        (!('privateDetailAttempt' in data) || (data.privateDetailAttempt is string && data.privateDetailAttempt.size() <= 800)) &&
+        (!('evidenceURL' in data) || (data.evidenceURL is string && data.evidenceURL.size() <= 1500)) &&
+        data.verificationStatus in ['Pending', 'Finder Approved', 'Admin Approved', 'Security Verified', 'Rejected', 'Disputed', 'Completed'] &&
+        (!('reviewedBy' in data) || (data.reviewedBy is string && data.reviewedBy.size() <= 128)) &&
+        (!('reviewNote' in data) || (data.reviewNote is string && data.reviewNote.size() <= 600)) &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidReward(data, rewardId) {
+      return data.keys().hasAll(['rewardId', 'userId', 'activity', 'points', 'createdAt']) &&
+        data.keys().hasOnly(['rewardId', 'userId', 'activity', 'points', 'relatedItemId', 'createdAt']) &&
+        data.rewardId == rewardId &&
+        isValidId(data.userId) &&
+        data.activity is string && data.activity.size() >= 2 && data.activity.size() <= 200 &&
+        data.points is number && data.points >= -500 && data.points <= 500 &&
+        (!('relatedItemId' in data) || (data.relatedItemId is string && data.relatedItemId.size() <= 128)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidRedemption(data, redemptionId) {
+      return data.keys().hasAll(['redemptionId', 'userId', 'rewardTitle', 'xpCost', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['redemptionId', 'userId', 'rewardTitle', 'xpCost', 'voucherCode', 'status', 'createdAt']) &&
+        data.redemptionId == redemptionId &&
+        isValidId(data.userId) &&
+        data.rewardTitle is string && data.rewardTitle.size() >= 2 && data.rewardTitle.size() <= 120 &&
+        data.xpCost is number && data.xpCost > 0 && data.xpCost <= 10000 &&
+        (!('voucherCode' in data) || (data.voucherCode is string && data.voucherCode.size() <= 40)) &&
+        data.status in ['Active', 'Used'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data, notificationId) {
+      return data.keys().hasAll(['notificationId', 'userId', 'message', 'type', 'isRead', 'createdAt']) &&
+        data.keys().hasOnly(['notificationId', 'userId', 'message', 'type', 'isRead', 'relatedPath', 'createdAt']) &&
+        data.notificationId == notificationId &&
+        isValidId(data.userId) &&
+        data.message is string && data.message.size() >= 2 && data.message.size() <= 400 &&
+        data.type in ['match', 'claim', 'approved', 'rejected', 'returned', 'xp', 'badge', 'rank', 'admin'] &&
+        data.isRead is bool &&
+        (!('relatedPath' in data) || (data.relatedPath is string && data.relatedPath.size() <= 120)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidHandover(data, handoverId) {
+      return data.keys().hasAll(['handoverId', 'referenceCode', 'itemId', 'receivingStaffId', 'storageLocation', 'handoverDate', 'status']) &&
+        data.keys().hasOnly(['handoverId', 'referenceCode', 'itemId', 'receivingStaffId', 'storageLocation', 'handoverDate', 'collectionDate', 'collectedByUserId', 'status']) &&
+        data.handoverId == handoverId &&
+        data.referenceCode is string && data.referenceCode.size() >= 4 && data.referenceCode.size() <= 40 &&
+        isValidId(data.itemId) && isValidId(data.receivingStaffId) &&
+        data.storageLocation is string && data.storageLocation.size() >= 2 && data.storageLocation.size() <= 120 &&
+        data.handoverDate is timestamp &&
+        (!('collectionDate' in data) || data.collectionDate is timestamp) &&
+        (!('collectedByUserId' in data) || (data.collectedByUserId is string && data.collectedByUserId.size() <= 128)) &&
+        data.status in ['In Custody', 'Claim Under Review', 'Collected', 'Archived'];
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll(['logId', 'actorId', 'action', 'createdAt']) &&
+        data.keys().hasOnly(['logId', 'actorId', 'action', 'targetType', 'targetId', 'details', 'createdAt']) &&
+        data.logId == logId &&
+        isValidId(data.actorId) &&
+        data.action is string && data.action.size() >= 2 && data.action.size() <= 160 &&
+        (!('targetType' in data) || (data.targetType is string && data.targetType.size() <= 60)) &&
+        (!('targetId' in data) || (data.targetId is string && data.targetId.size() <= 128)) &&
+        (!('details' in data) || (data.details is string && data.details.size() <= 500)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidModerationReport(data, reportId) {
+      return data.keys().hasAll(['reportId', 'reporterId', 'reason', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['reportId', 'reporterId', 'targetItemId', 'targetUserId', 'reason', 'status', 'createdAt']) &&
+        data.reportId == reportId &&
+        isValidId(data.reporterId) &&
+        (!('targetItemId' in data) || (data.targetItemId is string && data.targetItemId.size() <= 128)) &&
+        (!('targetUserId' in data) || (data.targetUserId is string && data.targetUserId.size() <= 128)) &&
+        data.reason is string && data.reason.size() >= 5 && data.reason.size() <= 500 &&
+        data.status in ['Open', 'Under Review', 'Resolved', 'Dismissed'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidCampusLocation(data, locationId) {
+      return data.keys().hasAll(['id', 'name', 'zone', 'buildingCode', 'latitude', 'longitude', 'mapX', 'mapY']) &&
+        data.keys().hasOnly(['id', 'name', 'zone', 'buildingCode', 'latitude', 'longitude', 'mapX', 'mapY', 'hasSecurityDesk', 'securityHours', 'updatedAt']) &&
+        data.id == locationId &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        data.zone is string && data.zone.size() >= 1 && data.zone.size() <= 80 &&
+        data.buildingCode is string && data.buildingCode.size() >= 1 && data.buildingCode.size() <= 24 &&
+        data.latitude is number && data.latitude >= -90 && data.latitude <= 90 &&
+        data.longitude is number && data.longitude >= -180 && data.longitude <= 180 &&
+        data.mapX is number && data.mapX >= 0 && data.mapX <= 100 &&
+        data.mapY is number && data.mapY >= 0 && data.mapY <= 100 &&
+        (!('hasSecurityDesk' in data) || data.hasSecurityDesk is bool) &&
+        (!('securityHours' in data) || (data.securityHours is string && data.securityHours.size() <= 60)) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidCampusMapConfig(data, configId) {
+      return data.keys().hasAll(['configId', 'campusName', 'layoutStyle']) &&
+        data.keys().hasOnly(['configId', 'campusName', 'mapSubtitle', 'layoutStyle', 'customMapImageURL', 'updatedAt']) &&
+        data.configId == configId &&
+        data.campusName is string && data.campusName.size() >= 2 && data.campusName.size() <= 120 &&
+        (!('mapSubtitle' in data) || (data.mapSubtitle is string && data.mapSubtitle.size() <= 200)) &&
+        data.layoutStyle in ['classic_quad', 'urban_grid', 'circular_courtyard', 'custom_image'] &&
+        (!('customMapImageURL' in data) || (data.customMapImageURL is string && data.customMapImageURL.size() <= 1500)) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    // --- Collection Rules ---
+
+    // Connection validation document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Admin & Security role registries
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list, write: if isAdmin();
+    }
+
+    match /security_staff/{staffId} {
+      allow get: if isValidId(staffId) && (isOwner(staffId) || isAdmin() || isSecurityStaff());
+      allow list, write: if isAdmin();
+    }
+
+    // Campus Map Configuration & Building Locations (Publicly readable, Admin-only writable)
+    match /campus_locations/{locationId} {
+      allow get: if isValidId(locationId);
+      allow list: if true;
+      allow create, update: if isValidId(locationId) && isAdmin() &&
+        isValidCampusLocation(incoming(), locationId) &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(locationId) && isAdmin();
+    }
+
+    match /campus_config/{configId} {
+      allow get: if isValidId(configId);
+      allow list: if true;
+      allow create, update: if isValidId(configId) && isAdmin() &&
+        isValidCampusMapConfig(incoming(), configId) &&
+        incoming().updatedAt == request.time;
+    }
+
+    // Users (Public profile + Split PII subcollection)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin() || isSecurityStaff() || existing().publicLeaderboardConsent == true);
+      allow list: if isAdmin() || isSecurityStaff() || resource.data.publicLeaderboardConsent == true;
+      allow create: if isValidId(userId) && isVerifiedUser() && isOwner(userId) &&
+        isValidUserPublic(incoming(), userId) &&
+        (incoming().role == 'student' || isBootstrappedAdmin()) &&
+        incoming().totalXP == 0 &&
+        incoming().successfulReturns == 0 &&
+        incoming().badges.size() == 0 &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(userId) && isVerifiedUser() && isValidUserPublic(incoming(), userId) && (
+        isAdmin() ||
+        isSecurityStaff() ||
+        (
+          isOwner(userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'department', 'publicLeaderboardConsent', 'avatarUrl']) &&
+          incoming().role == existing().role &&
+          incoming().totalXP == existing().totalXP &&
+          incoming().successfulReturns == existing().successfulReturns &&
+          incoming().badges == existing().badges &&
+          incoming().createdAt == existing().createdAt
+        )
+      );
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow create: if isValidId(userId) && isValidId(docId) && isVerifiedUser() && isOwner(userId) &&
+          isValidUserPrivate(incoming(), userId);
+        allow update: if isValidId(userId) && isValidId(docId) && isVerifiedUser() &&
+          isValidUserPrivate(incoming(), userId) && (
+            isAdmin() ||
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'studentId', 'phone', 'updatedAt']))
+          );
+      }
+    }
+
+    // Items (Public listings + Private details subcollection)
+    match /items/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if true;
+      allow create: if isValidId(itemId) && isVerifiedUser() &&
+        isValidItem(incoming(), itemId) &&
+        incoming().reportedBy == request.auth.uid &&
+        incoming().status in ['Lost', 'Found'] &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(itemId) && isVerifiedUser() && isValidItem(incoming(), itemId) && (
+        isAdmin() ||
+        isSecurityStaff() ||
+        (
+          existing().reportedBy == request.auth.uid &&
+          existing().status != 'Returned' && existing().status != 'Closed' &&
+          incoming().reportedBy == existing().reportedBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'brand', 'color', 'description', 'imageURL', 'location', 'eventDate', 'status', 'updatedAt'])
+        )
+      );
+      allow delete: if isValidId(itemId) && isVerifiedUser() && (
+        isAdmin() || (existing().reportedBy == request.auth.uid && existing().status in ['Lost', 'Found'])
+      );
+
+      match /private/{detailId} {
+        allow get: if isValidId(itemId) && isValidId(detailId) && isSignedIn() && (
+          existing().reportedBy == request.auth.uid || isAdmin() || isSecurityStaff()
+        );
+        allow create: if isValidId(itemId) && isValidId(detailId) && isVerifiedUser() &&
+          isValidItemPrivate(incoming(), itemId) &&
+          incoming().reportedBy == request.auth.uid &&
+          incoming().createdAt == request.time;
+        allow update: if isValidId(itemId) && isValidId(detailId) && isVerifiedUser() &&
+          isValidItemPrivate(incoming(), itemId) && (
+            isAdmin() ||
+            (existing().reportedBy == request.auth.uid &&
+             incoming().reportedBy == existing().reportedBy &&
+             incoming().createdAt == existing().createdAt &&
+             incoming().diff(existing()).affectedKeys().hasOnly(['privateFeatures', 'exactLocationNote']))
+          );
+      }
+    }
+
+    // AI Matches
+    match /matches/{matchId} {
+      allow get: if isValidId(matchId) && isSignedIn() && (
+        existing().lostOwnerId == request.auth.uid || existing().foundReporterId == request.auth.uid || isAdmin() || isSecurityStaff()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.lostOwnerId == request.auth.uid || resource.data.foundReporterId == request.auth.uid || isAdmin() || isSecurityStaff()
+      );
+      allow create: if isValidId(matchId) && isVerifiedUser() &&
+        isValidMatch(incoming(), matchId) &&
+        (incoming().lostOwnerId == request.auth.uid || incoming().foundReporterId == request.auth.uid || isAdmin()) &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(matchId) && isVerifiedUser() && isValidMatch(incoming(), matchId) && (
+        isAdmin() ||
+        (
+          (existing().lostOwnerId == request.auth.uid || existing().foundReporterId == request.auth.uid) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        )
+      );
+    }
+
+    // Claims
+    match /claims/{claimId} {
+      allow get: if isValidId(claimId) && isSignedIn() && (
+        existing().claimantId == request.auth.uid ||
+        existing().itemOwnerId == request.auth.uid ||
+        isAdmin() || isSecurityStaff()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.claimantId == request.auth.uid ||
+        resource.data.itemOwnerId == request.auth.uid ||
+        isAdmin() || isSecurityStaff()
+      );
+      allow create: if isValidId(claimId) && isVerifiedUser() &&
+        isValidClaim(incoming(), claimId) &&
+        incoming().claimantId == request.auth.uid &&
+        incoming().itemOwnerId != request.auth.uid &&
+        incoming().verificationStatus == 'Pending' &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/items/$(incoming().itemId));
+      allow update: if isValidId(claimId) && isVerifiedUser() && isValidClaim(incoming(), claimId) && (
+        isAdmin() ||
+        isSecurityStaff() ||
+        (
+          existing().itemOwnerId == request.auth.uid &&
+          existing().verificationStatus == 'Pending' &&
+          incoming().verificationStatus in ['Finder Approved', 'Rejected', 'Disputed'] &&
+          incoming().claimantId == existing().claimantId &&
+          incoming().itemOwnerId == existing().itemOwnerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['verificationStatus', 'reviewedBy', 'reviewNote', 'updatedAt'])
+        )
+      );
+    }
+
+    // Rewards (XP Ledger - Admin/Security only writes)
+    match /rewards/{rewardId} {
+      allow get: if isValidId(rewardId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(rewardId) && (isAdmin() || isSecurityStaff()) &&
+        isValidReward(incoming(), rewardId) &&
+        incoming().createdAt == request.time;
+    }
+
+    // Redemptions
+    match /redemptions/{redemptionId} {
+      allow get: if isValidId(redemptionId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(redemptionId) && isVerifiedUser() &&
+        isValidRedemption(incoming(), redemptionId) &&
+        incoming().userId == request.auth.uid &&
+        incoming().status == 'Active' &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(redemptionId) && isVerifiedUser() && isValidRedemption(incoming(), redemptionId) && (
+        isAdmin() ||
+        (existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+      );
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(notificationId) && isVerifiedUser() &&
+        isValidNotification(incoming(), notificationId) &&
+        (isAdmin() || isSecurityStaff() || incoming().userId == request.auth.uid || incoming().type in ['match', 'claim']) &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(notificationId) && isVerifiedUser() && isValidNotification(incoming(), notificationId) && (
+        isAdmin() ||
+        (existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']))
+      );
+    }
+
+    // Security Handovers
+    match /handovers/{handoverId} {
+      allow get: if isValidId(handoverId) && isSignedIn() && (isSecurityStaff() || isAdmin());
+      allow list: if isSignedIn() && (isSecurityStaff() || isAdmin());
+      allow create: if isValidId(handoverId) && isSecurityStaff() &&
+        isValidHandover(incoming(), handoverId) &&
+        incoming().handoverDate == request.time;
+      allow update: if isValidId(handoverId) && isSecurityStaff() &&
+        isValidHandover(incoming(), handoverId);
+    }
+
+    // Audit Logs
+    match /audit_logs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isValidId(logId) && isVerifiedUser() &&
+        isValidAuditLog(incoming(), logId) &&
+        incoming().actorId == request.auth.uid &&
+        incoming().createdAt == request.time;
+    }
+
+    // Moderation Reports
+    match /moderation_reports/{reportId} {
+      allow get: if isValidId(reportId) && isSignedIn() && (existing().reporterId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isAdmin());
+      allow create: if isValidId(reportId) && isVerifiedUser() &&
+        isValidModerationReport(incoming(), reportId) &&
+        incoming().reporterId == request.auth.uid &&
+        incoming().status == 'Open' &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(reportId) && isAdmin() && isValidModerationReport(incoming(), reportId);
+    }
+  }
+}
